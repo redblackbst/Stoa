@@ -154,6 +154,7 @@ vaults
 NULL
 logs
 .DS_Store
+uv.lock
 .devcontainer/devcontainer.json
 3.9
 3.10
