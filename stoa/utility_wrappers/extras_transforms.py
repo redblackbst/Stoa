@@ -55,7 +55,7 @@ class ConsistentExtrasWrapper(Wrapper[State, Observation, Action]):
             all_extras.update(step_timestep.extras)
 
         # Create zero-filled template
-        self._extras_template = jax.tree_map(lambda x: jnp.zeros_like(x), all_extras)
+        self._extras_template = jax.tree.map(lambda x: jnp.zeros_like(x), all_extras)
 
     def _fill_extras(self, extras: Dict[str, Any]) -> Dict[str, Any]:
         """Fill missing keys with zeros from template."""
