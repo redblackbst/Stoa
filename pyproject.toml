@@ -134,6 +134,7 @@ navix = ["navix>=0.7.0"]
 pgx = ["pgx>=2.6.0"]
 xminigrid = ["xminigrid"]
 jaxmaze = ["jaxmaze"]
+jaxarc = ["jaxarc>=1.0.3"]
 all = [
     "stoa-env[brax]",
     "stoa-env[gymnax]",
@@ -143,6 +144,7 @@ all = [
     "stoa-env[pgx]",
     "stoa-env[xminigrid]",
     "stoa-env[jaxmaze]",
+    "stoa-env[jaxarc]",
 ]
 
 [project.urls]

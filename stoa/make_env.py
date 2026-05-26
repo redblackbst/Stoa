@@ -28,6 +28,7 @@ def apply_core_wrappers(
     reset_ratio: int = 16,
     use_cached_auto_reset: bool = False,
     keep_terminal: bool = False,
+    metric_wrappers: tuple[Callable[[Environment], Environment], ...] = (),
 ) -> Environment:
     """Applies core wrappers for JAX-based environments and any user-defined optional wrappers from the configuration.
 
@@ -45,12 +46,15 @@ def apply_core_wrappers(
                      Higher values are more efficient but may cause duplicate resets.
                      Must divide num_envs evenly.
         use_cached_auto_reset: Whether to use CachedAutoResetWrapper instead of AutoResetWrapper.
+        metric_wrappers: Extra wrappers to apply after RecordEpisodeMetrics and before reset wrappers.
 
     Returns:
         A tuple containing the training and evaluation environments.
     """
     env = AddRNGKey(env)
     env = RecordEpisodeMetrics(env)
+    for metric_wrapper in metric_wrappers:
+        env = metric_wrapper(env)
 
     if use_optimistic_reset:
         if num_envs is None:
@@ -329,6 +333,78 @@ def make_jax_maze_env(
     return env
 
 
+def _config_get(config: Any, key: str, default: Any = None) -> Any:
+    """Read a key from dict-like configs, OmegaConf nodes, or simple objects."""
+    if config is None:
+        return default
+    if hasattr(config, "get"):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
+def make_jaxarc_env(
+    scenario_name: str,
+    action: Any | None = None,
+    observation_wrappers: Any | None = None,
+    jaxarc_config: Any | None = None,
+    auto_download: bool = True,
+    **env_kwargs,
+) -> Environment:
+    """Creates and wraps a JaxARC environment."""
+    try:
+        from jaxarc.configs import JaxArcConfig
+        from jaxarc.envs import (
+            AnswerObservationWrapper,
+            BboxActionWrapper,
+            ContextualObservationWrapper,
+            FlattenActionWrapper,
+            InputGridObservationWrapper,
+            PointActionWrapper,
+        )
+        from jaxarc.registration import make as make_jaxarc
+    except ImportError as e:
+        raise ImportError(
+            "JaxARC is required for 'jaxarc' environments. Install it with: "
+            "pip install jaxarc"
+        ) from e
+
+    config = jaxarc_config or JaxArcConfig()
+    env, _ = make_jaxarc(scenario_name, config=config, auto_download=auto_download)
+
+    action_mode = _config_get(action, "mode", "point")
+    if action_mode == "point":
+        env = PointActionWrapper(env)
+    elif action_mode == "bbox":
+        env = BboxActionWrapper(env)
+    elif action_mode != "mask":
+        raise ValueError(f"Unknown JaxARC action mode: {action_mode}")
+
+    env = FlattenActionWrapper(env)
+
+    if _config_get(observation_wrappers, "answer_grid", True):
+        env = AnswerObservationWrapper(env)
+    if _config_get(observation_wrappers, "input_grid", True):
+        env = InputGridObservationWrapper(env)
+    if _config_get(observation_wrappers, "contextual", True):
+        env = ContextualObservationWrapper(env)
+
+    return env
+
+
+def metric_wrappers_for(suite_name: str) -> tuple[Callable[[Environment], Environment], ...]:
+    """Returns metric wrappers that must be inserted after RecordEpisodeMetrics."""
+    if suite_name == "jaxarc":
+        try:
+            from jaxarc.wrappers import ExtendedMetrics
+        except ImportError as e:
+            raise ImportError(
+                "JaxARC is required for 'jaxarc' environments. Install it with: "
+                "pip install jaxarc"
+            ) from e
+        return (ExtendedMetrics,)
+    return ()
+
+
 # A dispatcher mapping environment suite names to their respective maker functions.
 ENV_MAKERS = {
     "jumanji": make_jumanji_env,
@@ -342,6 +418,7 @@ ENV_MAKERS = {
     "kinetix": make_kinetix_env,
     "mujoco_playground": make_playground_env,
     "jaxmaze": make_jax_maze_env,
+    "jaxarc": make_jaxarc_env,
     "debug": make_debug_env,
 }
 
