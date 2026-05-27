@@ -26,7 +26,7 @@ class ArraySpaceTest(parameterized.TestCase):
     @chex.all_variants()
     def test_dtype(self) -> None:
         sample = self.variant(self.space.sample)(self.rng_key)
-        self.assertEqual(sample.dtype, float)
+        self.assertEqual(sample.dtype, self.space.dtype)
 
 
 class DiscreteSpaceTest(parameterized.TestCase):
@@ -82,7 +82,7 @@ class BoundedArraySpaceTest(parameterized.TestCase):
         sample = self.variant(self.space.sample)(self.rng_key)
         self.assertTrue(jnp.all(sample >= 0.0) and jnp.all(sample <= 1.0))
         self.assertEqual(sample.shape, (2, 2))
-        self.assertEqual(sample.dtype, float)
+        self.assertEqual(sample.dtype, self.space.dtype)
 
     def test_contains(self) -> None:
         self.assertTrue(self.space.contains(jnp.array([[0.5, 0.0], [1.0, 0.7]], dtype=jnp.float32)))
@@ -171,6 +171,45 @@ class UtilityMethodsTest(parameterized.TestCase):
         s = spaces.ArraySpace((2, 2), dtype=jnp.float32)
         self.assertTrue(jnp.all(s.zeros() == 0.0))
         self.assertTrue(jnp.all(s.ones() == 1.0))
+
+    def test_array_space_generate_bool_value(self) -> None:
+        s = spaces.ArraySpace((2, 3), dtype=bool)
+        value = s.generate_value()
+        self.assertEqual(value.shape, (2, 3))
+        self.assertEqual(value.dtype, jnp.bool_)
+        self.assertTrue(s.contains(value))
+
+    def test_bounded_array_space_generate_clips_to_bounds(self) -> None:
+        s = spaces.BoundedArraySpace((2,), dtype=jnp.int32, minimum=1, maximum=5)
+        value = s.generate_value()
+        self.assertTrue(jnp.all(value == 1))
+        self.assertEqual(value.dtype, jnp.int32)
+        self.assertTrue(s.contains(value))
+
+    def test_dict_space_generate_value(self) -> None:
+        s = spaces.DictSpace(
+            {
+                "mask": spaces.ArraySpace((2,), dtype=bool),
+                "id": spaces.DiscreteSpace(4, dtype=jnp.int32),
+            }
+        )
+        value = s.generate_value()
+        self.assertEqual(value["mask"].dtype, jnp.bool_)
+        self.assertEqual(value["id"].dtype, jnp.int32)
+        self.assertTrue(s.contains(value))
+
+    def test_tuple_space_generate_value(self) -> None:
+        s = spaces.TupleSpace(
+            [
+                spaces.ArraySpace((2,), dtype=bool),
+                spaces.BoundedArraySpace((2,), dtype=jnp.float32, minimum=-1.0, maximum=1.0),
+            ]
+        )
+        value = s.generate_value()
+        self.assertIsInstance(value, tuple)
+        self.assertEqual(value[0].dtype, jnp.bool_)
+        self.assertEqual(value[1].dtype, jnp.float32)
+        self.assertTrue(s.contains(value))
 
     def test_discretespace_one_hot(self) -> None:
         s = spaces.DiscreteSpace(4)

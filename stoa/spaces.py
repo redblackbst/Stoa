@@ -114,7 +114,7 @@ class ArraySpace(Space[Array]):
         if isinstance(shape, int):
             shape = (shape,)
         self._shape = tuple(int(dim) for dim in shape)
-        self._dtype = jnp.dtype(dtype)
+        self._dtype = jax.dtypes.canonicalize_dtype(dtype)
         self._name = name
 
     def __repr__(self) -> str:
@@ -163,6 +163,10 @@ class ArraySpace(Space[Array]):
         """
         # For a generic Array, sample from standard normal as it's unbounded
         return jax.random.normal(rng_key, shape=self.shape, dtype=self.dtype)
+
+    def generate_value(self) -> Array:
+        """Generate a deterministic dummy value from this space."""
+        return jnp.zeros(self.shape, dtype=self.dtype)
 
     def contains(self, value: Any) -> Array:
         """Checks if value conforms to this space.
@@ -302,6 +306,11 @@ class BoundedArraySpace(ArraySpace):
         ).astype(self.dtype)
         return sample
 
+    def generate_value(self) -> Array:
+        """Generate a deterministic dummy value within this space's bounds."""
+        value = jnp.zeros(self.shape, dtype=self.dtype)
+        return self.clip(value).astype(self.dtype)
+
     def contains(self, value: Any) -> Array:
         """Checks if value conforms to this space.
 
@@ -311,15 +320,16 @@ class BoundedArraySpace(ArraySpace):
         Returns:
             A boolean indicating whether the value conforms to the space.
         """
-        # First check if the shape and dtype match
-        if not super().contains(value):
+        if not isinstance(value, (np.ndarray, jax.Array)):
+            return jnp.array(False)
+        if value.shape != self.shape or value.dtype != self.dtype:
             return jnp.array(False)
 
-        # Check if value is within bounds
-        return jnp.logical_and(
+        bounds_valid = jnp.logical_and(
             jnp.all(value >= self._minimum_broadcast),
             jnp.all(value <= self._maximum_broadcast),
         )
+        return jnp.logical_and(super().contains(value), bounds_valid)
 
     def clip(self, value: ArrayLike) -> Array:
         """Clip a value to the bounds of this space."""
@@ -527,6 +537,10 @@ class DictSpace(Space[Dict[str, Any]]):
         keys = jax.random.split(rng_key, len(self._spaces))
         return {key: space.sample(keys[i]) for i, (key, space) in enumerate(self._spaces.items())}
 
+    def generate_value(self) -> Dict[str, Any]:
+        """Generate deterministic dummy values from each child space."""
+        return {key: space.generate_value() for key, space in self._spaces.items()}
+
     def contains(self, value: Dict[str, Any]) -> Array:
         """Checks if value conforms to this space.
 
@@ -606,6 +620,10 @@ class TupleSpace(Space[Tuple[Any, ...]]):
         """
         keys = jax.random.split(rng_key, len(self._spaces))
         return tuple(space.sample(keys[i]) for i, space in enumerate(self._spaces))
+
+    def generate_value(self) -> Tuple[Any, ...]:
+        """Generate deterministic dummy values from each child space."""
+        return tuple(space.generate_value() for space in self._spaces)
 
     def contains(self, value: Any) -> Array:
         """Checks if value conforms to this space.
